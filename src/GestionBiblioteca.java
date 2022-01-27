@@ -1,7 +1,9 @@
 import javax.xml.transform.Result;
 import java.sql.*;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.Scanner;
 
 public class GestionBiblioteca {
@@ -14,7 +16,7 @@ public class GestionBiblioteca {
     private static final String INSERT_LIBRO = "INSERT INTO libro (isbn, titulo) values (?, ?)";
     private static final String INSERT_COPIA = "INSERT INTO copia (codcopia, isbn) values (?, ?)";
     private static final String INSERT_PRESTAMO = "INSERT INTO prestamo (idsocio, codcopia, fprestamo, fdevolucion) values (?, ?, ?, ?)";
-    private static final String FINALIZAR_PRESTAMO = "UPDATE prestamo set fdevolucion = ? WHERE codcopia = ? and idsocio = ?;";
+    private static final String FINALIZAR_PRESTAMO = "UPDATE prestamo set fdevolucion = ? WHERE idsocio = ? and codcopia LIKE ?;";
 
     public static void main(String[] args) {
         int opc = 0;
@@ -52,10 +54,44 @@ public class GestionBiblioteca {
                 break;
 
             case 6: //Genera un informe
+                generaInformes(con);
                 break;
 
             case 7: //Pasar a historico
                 break;
+        }
+    }
+
+    private static void generaInformes(Connection con) {
+        mostrarLibroMasLeido(con);
+        //usuarioMasLector(con);
+        //mostrarUsuarios con prestamos actuales
+        //listado de libros y prestamos
+    }
+
+    private static void mostrarLibroMasLeido(Connection con) {
+        String sql = "select codcopia from prestamo where fdevolucion is not null ;";
+        ArrayList<String> libros = new ArrayList<String>();
+        HashMap<String, Integer> libro = new HashMap<String, Integer>();
+        Statement st;
+        ResultSet rs;
+        boolean existe = false;
+        String informacion;
+
+        try {
+            st = con.createStatement();
+            rs = st.executeQuery(sql);
+            while( rs.next() ){
+                existe = true;
+                informacion = rs.getString(1).split("_")[0];
+                if(!libro.containsKey(informacion)){
+                    libro.put(informacion, 1);
+                }else{
+                    //libro.set
+                }
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
         }
     }
 
@@ -64,15 +100,50 @@ public class GestionBiblioteca {
         //Pedir ISBN
         String dni = solicitarCadena("Introduzca el dni: ");
         int isbn = solicitarEntero("Introduzca el isbn del ");
+        Date date = new Date();
+        SimpleDateFormat simpleDateFormat = new SimpleDateFormat("yyyy-MM-dd");
+        String formattedDate = simpleDateFormat.format(date);
+        java.sql.Date dateSql = java.sql.Date.valueOf(formattedDate);
         PreparedStatement pst;
+        ResultSet rsIdSocio, rsAux;
+        PreparedStatement pstDniASocio;
+
         try {
-            pst = con.prepareStatement(FINALIZAR_PRESTAMO);
-            Date date = new Date();
-            SimpleDateFormat simpleDateFormat = new SimpleDateFormat("yyyy-MM-dd");
-            String formattedDate = simpleDateFormat.format(date);
-            java.sql.Date dateSql = java.sql.Date.valueOf(formattedDate);
-            pst.setDate(1, dateSql);
-            //pst.setString(2, );
+            pstDniASocio = con.prepareStatement("SELECT idSocio FROM socio WHERE dni = ?;");
+            pstDniASocio.setString(1, dni);
+            rsIdSocio = pstDniASocio.executeQuery();
+
+            if(rsIdSocio.next()){
+                //Si el libro y el dni corresponden al mismo prestamo, se finaliza
+                PreparedStatement pstAux = con.prepareStatement("SELECT * FROM prestamo WHERE idsocio = ? and codcopia LIKE ?;");
+                pstAux.setInt(1, rsIdSocio.getInt(1));
+                pstAux.setString(2, isbn + "%");
+                rsAux = pstAux.executeQuery();
+
+                //Sin tener en cuenta que una misma persona vaya a recoger dos veces el mismo libro,
+                //uso un if ya que un while solo tendrçia sentido si hubiese más de 1 préstamo con la
+                //misma persona y el codcopia correspondiente al mismo libro (caso que descarto)
+                if(rsAux.next()){
+                    System.out.println("Datos insertados correctamente. Se está tramitando el fin del préstamo.");
+                    if(rsAux.getDate("fdevolucion") != null){
+                        System.out.println("Este libro ya ha sido devuelto.");
+                        }else {
+                            pst = con.prepareStatement(FINALIZAR_PRESTAMO);
+                            pst.setDate(1, dateSql);
+                            pst.setInt(2, rsIdSocio.getInt(1));
+                            pst.setString(3, isbn + "%");
+                            if(pst.executeUpdate() != 0){
+                                System.out.println("Préstamo realizado correctamente.");
+                            }else{
+                                System.out.println("Lo sentimos, no se ha podido realizar el fin del préstamo.");
+                            }
+                    }
+                }else{
+                    System.out.println("Los datos insertados no coinciden.");
+                }
+            }else{
+                System.out.println("Los sentimos, el dni que has insertado no se encuentra en nuestra base de datos.");
+            }
         } catch (SQLException e) {
             e.printStackTrace();
         }
