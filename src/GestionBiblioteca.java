@@ -1,3 +1,5 @@
+import javax.imageio.plugins.jpeg.JPEGImageReadParam;
+import javax.swing.plaf.nimbus.State;
 import javax.xml.transform.Result;
 import java.sql.*;
 import java.text.SimpleDateFormat;
@@ -58,25 +60,180 @@ public class GestionBiblioteca {
                 break;
 
             case 7: //Pasar a historico
+                pasarHistorico(con);
                 break;
         }
     }
 
+    private static void pasarHistorico(Connection con) {
+        String titulo = solicitarCadena("Introduzca el título del libro: ");
+        convertirTituloAIsbn(con, titulo);
+    }
+
+    private static void convertirTituloAIsbn(Connection con, String titulo) {
+        PreparedStatement pst, pstLibro, pstCopia, pstPrestamo;
+        ResultSet isbn;
+        try {
+            pst = con.prepareStatement("SELECT isbn FROM libro WHERE titulo = ?");
+            pst.setString(1, titulo);
+            isbn = pst.executeQuery();
+            if(isbn.next()){
+                //Transportar datos a hist
+                con.setAutoCommit(false);
+                pstCopia = tratarCopias(con, isbn);
+                //pstLibro = tratarLibros(con, isbn);
+                //pstPrestamo = tratarPrestamo(con, isbn);
+                //ejecutar todos los preparedStatement
+                //con.commit();
+            }else{
+                System.out.println("No existen libros con ese título.");
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private static PreparedStatement tratarCopias(Connection con, ResultSet isbn) {
+        String selectCopias = "SELECT codcopia, isbn FROM copia;";
+        String insertCopiasH = "INSERT INTO copia_hist (codcopia_hist, isbn_hist) VALUES (?, ?);";
+        ResultSet copias;
+        Statement st;
+        PreparedStatement pstCopiasH = null;
+
+        try {
+            st = con.createStatement();
+            copias = st.executeQuery(selectCopias);
+            while(copias.next()){
+                pstCopiasH = con.prepareStatement(insertCopiasH);
+                pstCopiasH.setString(1, copias.getString(1));
+                pstCopiasH.setInt(2, copias.getInt(2));
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return pstCopiasH;
+    }
+
     private static void generaInformes(Connection con) {
         mostrarLibroMasLeido(con);
-        //usuarioMasLector(con);
-        //mostrarUsuarios con prestamos actuales
-        //listado de libros y prestamos
+        usuarioMasLector(con);
+        usuariosConPrestamos(con);
+        vecesLibrosPrestados(con);
+    }
+
+    private static void vecesLibrosPrestados(Connection con) {
+        String sqlIsbn = "select isbn, titulo from libro;";
+        Statement stSql;
+        ResultSet isbn;
+        int numeroISBN;
+        String titulo;
+        boolean hayPrestamos = false;
+        try {
+            stSql = con.createStatement();
+            isbn = stSql.executeQuery(sqlIsbn);
+            while(isbn.next()){
+                hayPrestamos = true;
+                numeroISBN = isbn.getInt(1);
+                titulo = isbn.getString(2);
+                mostrarRegistro(con, numeroISBN, titulo);
+            }
+            if(!hayPrestamos){
+                System.out.println("No hay préstamos en nuestra base de datos.");
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private static void mostrarRegistro(Connection con, int numeroISBN, String titulo) {
+        String sql = "select count(*) from prestamo where codcopia like ?;";
+        PreparedStatement pst;
+        ResultSet registros;
+        boolean existe = false;
+        try {
+            pst = con.prepareStatement(sql);
+            pst.setString(1, numeroISBN + "%");
+            registros = pst.executeQuery();
+            if(registros.next()){
+                existe = true;
+                if(registros.getInt(1) == 1){
+                    System.out.println("Isbn: " + numeroISBN + " Titulo: " + titulo + " 1 vez prestado.");
+                }else{
+                    System.out.println("Isbn: " + numeroISBN + " Titulo: " + titulo + " " + registros.getInt(1) + " veces prestado.");
+                }
+            }
+            if(!existe){
+                System.out.println("No existen consultas.");
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private static void usuariosConPrestamos(Connection con) {
+        String sql = "select s.dni, s.nombre from socio s join prestamo p on s.idSocio = p.idsocio where p.fdevolucion is null;";
+        Statement st;
+        ResultSet rs;
+        StringBuilder mensaje = new StringBuilder("Personas con préstamos pendientes.");
+        try {
+            st = con.createStatement();
+            rs = st.executeQuery(sql);
+            while (rs.next()){
+                mensaje.append("\nDNI: ").append(rs.getInt(1)).append(" Nombre: ").append(rs.getString(2)).append(".");
+            }
+            if(mensaje.toString().equals("Personas con préstamos pendientes.")){
+                System.out.println("No hay usuarios con préstamos actualmente.");
+            }else{
+                System.out.println(mensaje.toString());
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private static void usuarioMasLector(Connection con) {
+        String selectUsuarioMasLector = "select p.idsocio\n" +
+                "from\n" +
+                "prestamo p \n" +
+                "group by\n" +
+                "p.idsocio having count(p.idsocio) =\n" +
+                "(select\n" +
+                "max(i.total) from\n" +
+                "(select count(p2.idsocio) as total\n" +
+                "from prestamo p2 group by p2.idsocio) i);";
+        String idAnombre = "SELECT nombre FROM socio WHERE idSocio = ?";
+        PreparedStatement pstUser;
+        Statement pstUsuarioLector;
+        ResultSet idUser;
+        try {
+            pstUsuarioLector = con.createStatement();
+            idUser = pstUsuarioLector.executeQuery(selectUsuarioMasLector);
+
+            if(idUser.next()){
+                pstUser = con.prepareStatement(idAnombre);
+                pstUser.setInt(1, idUser.getInt(1));
+                idUser = pstUser.executeQuery();
+                if(idUser.next()){
+                    System.out.println("El usuario más lector es: " + idUser.getString(1));
+                }else{
+                    System.out.println("Error en select sql.");
+                }
+            }else{
+                System.out.println("No hay lectores registrados en la biblioteca.");
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
     }
 
     private static void mostrarLibroMasLeido(Connection con) {
         String sql = "select codcopia from prestamo where fdevolucion is not null ;";
-        ArrayList<String> libros = new ArrayList<String>();
-        HashMap<String, Integer> libro = new HashMap<String, Integer>();
+        ArrayList<Integer> libros = new ArrayList<Integer>();
         Statement st;
         ResultSet rs;
         boolean existe = false;
         String informacion;
+        int libroMasLeido = 0;
 
         try {
             st = con.createStatement();
@@ -84,11 +241,30 @@ public class GestionBiblioteca {
             while( rs.next() ){
                 existe = true;
                 informacion = rs.getString(1).split("_")[0];
-                if(!libro.containsKey(informacion)){
-                    libro.put(informacion, 1);
-                }else{
-                    //libro.set
+                libros.add(Integer.parseInt(informacion));
+            }
+            ArrayList<Integer> auxiliar = new ArrayList<Integer>(libros);
+            int contador, max = 0;
+            for (int l: libros) {
+                contador = 0;
+                for (int a: auxiliar) {
+                    if(l == a){
+                        contador++;
+                    }
+                    if(contador > max){ //Se actualiza el libro que mas veces ha sido leído y almaceno el isbn
+                        max = contador;
+                        libroMasLeido = a;
+                    }
                 }
+            }
+            String sqlLibroMasLeido = "SELECT titulo from libro WHERE isbn = ?";
+            PreparedStatement pstLibro = con.prepareStatement(sqlLibroMasLeido);
+            pstLibro.setInt(1, libroMasLeido);
+            ResultSet rsLibro = pstLibro.executeQuery();
+            if(rsLibro.next()){
+                System.out.println("El libro más leído es: " + rsLibro.getString(1));
+            }else{
+                System.out.println("Error en select de isbn a titulo del libro.");
             }
         } catch (SQLException e) {
             e.printStackTrace();
