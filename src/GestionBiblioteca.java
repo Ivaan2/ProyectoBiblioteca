@@ -61,19 +61,26 @@ public class GestionBiblioteca {
         ResultSet isbn;
         try {
             //Confirmamos que el libro existe
-            pst = con.prepareStatement("SELECT isbn FROM libro WHERE titulo = ?");
+            pst = con.prepareStatement("SELECT isbn FROM libro WHERE titulo = ?;");
             pst.setString(1, titulo);
             isbn = pst.executeQuery();
             if(isbn.next()){
+                String sql = "SET FOREIGN_KEY_CHECKS=0;";
+                Statement st = con.createStatement();
+                if(st.execute(sql)){
+                    System.out.println("Se cambia el set.");
+                }
                 //Transportar datos a hist
                 con.setAutoCommit(false);
-                pstCopia = tratarCopias(con, isbn.getString(1));
                 pstLibro = tratarLibros(con, isbn.getString(1));
+                pstCopia = tratarCopias(con, isbn.getString(1));
                 pstPrestamo = tratarPrestamo(con, isbn.getString(1));
 
+
+                pstPrestamo.executeBatch();
                 pstCopia.executeBatch();
                 pstLibro.executeBatch();
-                pstPrestamo.executeBatch();
+
                 con.commit();
             }else{
                 System.out.println("No existen libros con ese título.");
@@ -101,7 +108,8 @@ public class GestionBiblioteca {
     private static PreparedStatement tratarPrestamo(Connection con, String isbn) {
         String selectPrestamo = "SELECT idprestamo, idsocio, codcopia, fprestamo, fdevolucion FROM prestamo WHERE codcopia LIKE ?;";
         String insertPrestamoH = "INSERT INTO prestamo_hist (idprestamo_hist, idsocio, codcopia_hist, fprestamo_hist, fdevolucion_hist) values (?, ?, ?, ?, ?);";
-        PreparedStatement st;
+        String deletePrestamo = "DELETE FROM prestamo WHERE codcopia LIKE ?";
+        PreparedStatement st, pstDelete;
         PreparedStatement pstPrestamo = null;
 
         try {
@@ -117,6 +125,11 @@ public class GestionBiblioteca {
                 pstPrestamo.setDate(5, rsPrestamo.getDate(5));
                 pstPrestamo.addBatch();
             }
+            pstDelete = con.prepareStatement(deletePrestamo);
+            pstDelete.setString(1, isbn + "%");
+            if(pstDelete.executeUpdate() != 0){
+                System.out.println("Datos borrados de la tabla préstamo correctamente.");
+            }
         } catch (SQLException e) {
             e.printStackTrace();
         }
@@ -124,20 +137,26 @@ public class GestionBiblioteca {
     }
 
     private static PreparedStatement tratarLibros(Connection con, String isbn) {
-        String selectLibros = "SELECT isbn, titulo FROM libro WHERE isbn LIKE ?;";
+        String selectLibros = "SELECT isbn, titulo FROM libro WHERE isbn = ?;";
         String insertLibroH = "INSERT INTO libro (isbn, titulo) values (?, ?);";
-        PreparedStatement st;
+        String deleteLibro = "DELETE FROM libro WHERE isbn = ?;";
+        PreparedStatement st, pstDelete;
         PreparedStatement pstLibro = null;
 
         try {
             st = con.prepareStatement(selectLibros);
             st.setString(1, isbn);
-            ResultSet rsLibro = st.executeQuery(selectLibros);
+            ResultSet rsLibro = st.executeQuery();
             while (rsLibro.next()) {
                 pstLibro = con.prepareStatement(insertLibroH);
                 pstLibro.setString(1, rsLibro.getString(1));
                 pstLibro.setString(2, rsLibro.getString(2));
                 pstLibro.addBatch();
+            }
+            pstDelete = con.prepareStatement(deleteLibro);
+            pstDelete.setString(1, isbn);
+            if(pstDelete.executeUpdate() != 0){
+                System.out.println("Datos borrados de libro con éxito.");
             }
         } catch (SQLException e) {
             e.printStackTrace();
@@ -148,8 +167,9 @@ public class GestionBiblioteca {
     private static PreparedStatement tratarCopias(Connection con, String isbn) {
         String selectCopias = "SELECT codcopia, isbn FROM copia WHERE isbn = ?;";
         String insertCopiasH = "INSERT INTO copia_hist (codcopia_hist, isbn_hist) VALUES (?, ?);";
+        String deletePrestamo = "DELETE FROM copia WHERE isbn = ?;";
         ResultSet copias;
-        PreparedStatement st;
+        PreparedStatement st, pstDeleteCopia;
         PreparedStatement pstCopiasH = null;
 
         try {
@@ -159,8 +179,13 @@ public class GestionBiblioteca {
             while(copias.next()){
                 pstCopiasH = con.prepareStatement(insertCopiasH);
                 pstCopiasH.setString(1, copias.getString(1));
-                pstCopiasH.setInt(2, copias.getInt(2));
+                pstCopiasH.setString(2, copias.getString(2));
                 pstCopiasH.addBatch();
+            }
+            pstDeleteCopia = con.prepareStatement(deletePrestamo);
+            pstDeleteCopia.setString(1, isbn + "%");
+            if(pstDeleteCopia.executeUpdate() != 0){
+                System.out.println("Se han borrado los registros de los prestamos con éxito.");
             }
         } catch (SQLException e) {
             e.printStackTrace();
@@ -179,7 +204,7 @@ public class GestionBiblioteca {
         String sqlIsbn = "select isbn, titulo from libro;";
         Statement stSql;
         ResultSet isbn;
-        int numeroISBN;
+        String numeroISBN;
         String titulo;
         boolean hayPrestamos = false;
         try {
@@ -187,7 +212,7 @@ public class GestionBiblioteca {
             isbn = stSql.executeQuery(sqlIsbn);
             while(isbn.next()){
                 hayPrestamos = true;
-                numeroISBN = isbn.getInt(1);
+                numeroISBN = isbn.getString(1);
                 titulo = isbn.getString(2);
                 mostrarRegistro(con, numeroISBN, titulo);
             }
@@ -199,7 +224,7 @@ public class GestionBiblioteca {
         }
     }
 
-    private static void mostrarRegistro(Connection con, int numeroISBN, String titulo) {
+    private static void mostrarRegistro(Connection con, String numeroISBN, String titulo) {
         String sql = "select count(*) from prestamo where codcopia like ?;";
         PreparedStatement pst;
         ResultSet registros;
@@ -233,7 +258,7 @@ public class GestionBiblioteca {
             st = con.createStatement();
             rs = st.executeQuery(sql);
             while (rs.next()){
-                mensaje.append("\nDNI: ").append(rs.getInt(1)).append(" Nombre: ").append(rs.getString(2)).append(".");
+                mensaje.append("\nDNI: ").append(rs.getString(1)).append(" Nombre: ").append(rs.getString(2)).append(".");
             }
             if(mensaje.toString().equals("Personas con préstamos pendientes.")){
                 System.out.println("No hay usuarios con préstamos actualmente.");
@@ -282,12 +307,12 @@ public class GestionBiblioteca {
 
     private static void mostrarLibroMasLeido(Connection con) {
         String sql = "select codcopia from prestamo where fdevolucion is not null ;";
-        ArrayList<Integer> libros = new ArrayList<Integer>();
+        ArrayList<String> libros = new ArrayList<String>();
         Statement st;
         ResultSet rs;
         boolean existe = false;
         String informacion;
-        int libroMasLeido = 0;
+        String libroMasLeido = null;
 
         try {
             st = con.createStatement();
@@ -295,18 +320,18 @@ public class GestionBiblioteca {
             while( rs.next() ){
                 existe = true;
                 informacion = rs.getString(1).split("_")[0];
-                libros.add(Integer.parseInt(informacion));
+                libros.add(informacion);
             }
             if(!existe){
                 System.out.println("No se han leído libros aún");
             }
             else {
-                ArrayList<Integer> auxiliar = new ArrayList<Integer>(libros);
+                ArrayList<String> auxiliar = new ArrayList<String>(libros);
                 int contador, max = 0;
-                for (int l : libros) {
+                for (String l : libros) {
                     contador = 0;
-                    for (int a : auxiliar) {
-                        if (l == a) {
+                    for (String a : auxiliar) {
+                        if (l.equals(a)) {
                             contador++;
                         }
                         if (contador > max) { //Se actualiza el libro que mas veces ha sido leído y almaceno el isbn
@@ -317,7 +342,7 @@ public class GestionBiblioteca {
                 }
                 String sqlLibroMasLeido = "SELECT titulo from libro WHERE isbn = ?";
                 PreparedStatement pstLibro = con.prepareStatement(sqlLibroMasLeido);
-                pstLibro.setInt(1, libroMasLeido);
+                pstLibro.setString(1, libroMasLeido);
                 ResultSet rsLibro = pstLibro.executeQuery();
                 if (rsLibro.next()) {
                     System.out.println("El libro más leído es: " + rsLibro.getString(1));
@@ -334,7 +359,7 @@ public class GestionBiblioteca {
         //Pedir dni
         //Pedir ISBN
         String dni = solicitarCadena("Introduzca el dni: ");
-        int isbn = solicitarEntero("Introduzca el isbn del ");
+        String isbn = solicitarCadena("Introduzca el isbn del libro: ");
         Date date = new Date();
         SimpleDateFormat simpleDateFormat = new SimpleDateFormat("yyyy-MM-dd");
         String formattedDate = simpleDateFormat.format(date);
@@ -368,7 +393,7 @@ public class GestionBiblioteca {
                             pst.setInt(2, rsIdSocio.getInt(1));
                             pst.setString(3, isbn + "%");
                             if(pst.executeUpdate() != 0){
-                                System.out.println("Préstamo realizado correctamente.");
+                                System.out.println("Préstamo finalizado correctamente.");
                             }else{
                                 System.out.println("Lo sentimos, no se ha podido realizar el fin del préstamo.");
                             }
@@ -466,7 +491,7 @@ public class GestionBiblioteca {
             pst.setString(2, codcopia);
             pst.setDate(3, dateSql);
             pst.setDate(4, null);
-            if(pst.execute()){
+            if(pst.executeUpdate() != 0){
                 System.out.println("Préstamo realizado correctamente.");
             }else{
                 System.out.println("Error al prestar el libro.");
@@ -478,12 +503,13 @@ public class GestionBiblioteca {
 
     private static boolean disponibilidadCopia(String codcopia, Connection con) {
         boolean disponible = true;
-        String sql = "SELECT * FROM  prestamo WHERE codcopia = ? and fprestamo is not null and fdevolucion is null;";
+        String sql = "SELECT * FROM  prestamo WHERE codcopia = ? and fdevolucion is null;";
 
         try {
             PreparedStatement pst = con.prepareStatement(sql);
             pst.setString(1, codcopia);
-            if(pst.execute()){
+            ResultSet rs = pst.executeQuery();
+            if(rs.next()){
                 //Si la consulta devuelve algo, el método execute es True, por lo disponble -> false
                 disponible = false;
             }
