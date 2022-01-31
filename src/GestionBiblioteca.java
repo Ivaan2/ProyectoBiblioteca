@@ -83,6 +83,7 @@ public class GestionBiblioteca {
                 pstLibro.executeBatch();
 
                 con.commit();
+                con.close();
             }else{
                 System.out.println("No existen libros con ese título.");
             }
