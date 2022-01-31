@@ -1,3 +1,4 @@
+
 import java.sql.*;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -17,7 +18,7 @@ public class GestionBiblioteca {
     private static final String FINALIZAR_PRESTAMO = "UPDATE prestamo set fdevolucion = ? WHERE idsocio = ? and codcopia LIKE ?;";
 
     public static void main(String[] args) {
-        int opc = 0;
+        int opc;
         try {
             con = DriverManager.getConnection(bd, user, pwd);
         } catch (SQLException e) {
@@ -55,9 +56,9 @@ public class GestionBiblioteca {
 
     private static void convertirTituloAIsbn(Connection con, String titulo) {
         PreparedStatement pst;
-        PreparedStatement pstLibro = null;
-        PreparedStatement pstCopia = null;
-        PreparedStatement pstPrestamo = null;
+        PreparedStatement pstLibro;
+        PreparedStatement pstCopia;
+        PreparedStatement pstPrestamo;
         ResultSet isbn;
         try {
             //Confirmamos que el libro existe
@@ -263,7 +264,7 @@ public class GestionBiblioteca {
             if(mensaje.toString().equals("Personas con préstamos pendientes.")){
                 System.out.println("No hay usuarios con préstamos actualmente.");
             }else{
-                System.out.println(mensaje.toString());
+                System.out.println(mensaje);
             }
         } catch (SQLException e) {
             e.printStackTrace();
@@ -271,15 +272,16 @@ public class GestionBiblioteca {
     }
 
     private static void usuarioMasLector(Connection con) {
-        String selectUsuarioMasLector = "select p.idsocio\n" +
-                "from\n" +
-                "prestamo p \n" +
-                "group by\n" +
-                "p.idsocio having count(p.idsocio) =\n" +
-                "(select\n" +
-                "max(i.total) from\n" +
-                "(select count(p2.idsocio) as total\n" +
-                "from prestamo p2 group by p2.idsocio) i);";
+        String selectUsuarioMasLector = """
+                select p.idsocio
+                from
+                prestamo p\s
+                group by
+                p.idsocio having count(p.idsocio) =
+                (select
+                max(i.total) from
+                (select count(p2.idsocio) as total
+                from prestamo p2 group by p2.idsocio) i);""";
         String idAnombre = "SELECT nombre FROM socio WHERE idSocio = ?";
         PreparedStatement pstUser;
         Statement pstUsuarioLector;
@@ -420,6 +422,11 @@ public class GestionBiblioteca {
                 //DNI e ISBN correctos
                 //Comprobar que quedan copias del libro disponibles
                 numCopias = copiasDisponibles(con, isbnLibro);
+                if(numCopias == 1){
+                    System.out.println("1 copia disponible.");
+                }else {
+                    System.out.println(numCopias + " copias disponibles.");
+                }
                 //Comprobar que el socio no tenga prestamos actuales
                 if(socioSinPrestamos(con, dniSocio)){
                     //No tiene prestamos actualmente
@@ -442,7 +449,6 @@ public class GestionBiblioteca {
         //  con el next ir recorriendo y comprobando si el libro está prestado
         //Lo tienes Iván
         String SelectCopias = "SELECT codcopia FROM copia WHERE isbn = ?;";
-        //TODO verificar que esa copia existe para ver si sigue en prestamo
         ResultSet rs;
         String codcopia = null;
         try {
@@ -538,17 +544,17 @@ public class GestionBiblioteca {
     }
 
     private static int copiasDisponibles(Connection con, String isbnLibro) {
-        String sqlCopiaLibro = "SELECT codcopia FROM copia WHERE isbn = ?";
-        PreparedStatement pst = null;
+        String sqlCopiaLibro = "SELECT count(codcopia) FROM prestamo WHERE codcopia LIKE ? and fdevolucion is not null;";
+        PreparedStatement pst;
         ResultSet rsCopias;
         int numeroCopias = 0;
 
         try {
             pst = con.prepareStatement(sqlCopiaLibro);
-            pst.setString(1, isbnLibro);
+            pst.setString(1, isbnLibro + "%");
             rsCopias = pst.executeQuery();
             while(rsCopias.next()){
-                numeroCopias++;
+                numeroCopias = rsCopias.getInt(1);
             }
         } catch (SQLException e) {
             e.printStackTrace();
@@ -602,14 +608,9 @@ public class GestionBiblioteca {
     }
 
     private static void tratarOpciones(int opc, Connection con) {
-        switch (opc){
-            case 1:
-                buscarSocio(con);
-                break;
-
-            case 2:
-                buscarLibro(con);
-                break;
+        switch (opc) {
+            case 1 -> buscarSocio(con);
+            case 2 -> buscarLibro(con);
         }
     }
 
@@ -652,9 +653,10 @@ public class GestionBiblioteca {
     }
 
     private static int mostrarOpciones() {
-        System.out.println("Elija la opción que desee:" +
-                "\n1- Buscar socio" +
-                "\n2- Buscar libro");
+        System.out.println("""
+                Elija la opción que desee:
+                1- Buscar socio
+                2- Buscar libro""");
         return Integer.parseInt(sc.nextLine());
     }
 
